@@ -143,7 +143,12 @@ def _decode_tobeparsed(tbp: str):
                     )
 
     details = ", ".join(failure_points[-MAX_FAILURE_POINTS_IN_ERROR:])
-    raise ValueError(f"Unable to decode stream payload ({details})") from last_error
+    message = (
+        f"Unable to decode stream payload ({details})"
+        if details
+        else "Unable to decode stream payload"
+    )
+    raise ValueError(message) from last_error
 
 class AllAnimeFilter(BaseFilter):
     def _apply_query(self, query: str):
