@@ -97,31 +97,34 @@ INFO_QUERY = """
 """
 
 def _decode_tobeparsed(tbp: str):
+    gcm_tag_size = 16
     payload = tbp.strip()
     padded_payload = payload + ("=" * (-len(payload) % 4))
     decode_methods = (base64.b64decode, base64.urlsafe_b64decode)
     key_seeds = ("P7K2RGbFgauVtmiS"[::-1], "P7K2RGbFgauVtmiS")
     nonce_sizes = (12, 16)
     last_error: ValueError | UnicodeDecodeError | json.JSONDecodeError | None = None
+    failure_points: list[str] = []
 
     for decode_method in decode_methods:
         try:
             raw = decode_method(padded_payload)
         except ValueError as e:
             last_error = e
+            failure_points.append(f"{decode_method.__name__}:base64")
             continue
 
         for key_seed in key_seeds:
             key = hashlib.sha256(key_seed.encode()).digest()
 
             for nonce_size in nonce_sizes:
-                if len(raw) <= nonce_size + 16:
+                if len(raw) <= nonce_size + gcm_tag_size:
                     continue
 
                 iv, ciphertext, tag = (
                     raw[:nonce_size],
-                    raw[nonce_size:-16],
-                    raw[-16:],
+                    raw[nonce_size:-gcm_tag_size],
+                    raw[-gcm_tag_size:],
                 )
                 cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
 
@@ -130,8 +133,12 @@ def _decode_tobeparsed(tbp: str):
                     return json.loads(decrypted)
                 except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
                     last_error = e
+                    failure_points.append(
+                        f"{decode_method.__name__}:{key_seed[:4]}...:{nonce_size}"
+                    )
 
-    raise ValueError("Unable to decode stream payload") from last_error
+    details = ", ".join(failure_points[-6:])
+    raise ValueError(f"Unable to decode stream payload ({details})") from last_error
 
 class AllAnimeFilter(BaseFilter):
     def _apply_query(self, query: str):
