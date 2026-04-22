@@ -150,7 +150,7 @@ def _decode_tobeparsed(tbp: str):
                     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
                         last_error = e
                         failure_points.append(
-                            f"{decode_method.__name__}:{key.hex()[:8]}:sha256:{nonce_size}:{tag_size}"
+                            f"{decode_method.__name__}:{key_seed[:4]}...:sha256:{nonce_size}:{tag_size}"
                         )
 
     details = ", ".join(failure_points[-MAX_FAILURE_POINTS_IN_ERROR:])
