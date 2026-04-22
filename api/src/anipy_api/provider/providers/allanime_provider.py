@@ -137,7 +137,8 @@ def _decode_tobeparsed(tbp: str):
                         f"{decode_method.__name__}:{key_seed[:4]}...:{nonce_size}"
                     )
 
-    details = ", ".join(failure_points[-6:])
+    max_failure_points_in_error = 6
+    details = ", ".join(failure_points[-max_failure_points_in_error:])
     raise ValueError(f"Unable to decode stream payload ({details})") from last_error
 
 class AllAnimeFilter(BaseFilter):
