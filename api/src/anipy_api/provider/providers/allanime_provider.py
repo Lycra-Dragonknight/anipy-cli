@@ -97,12 +97,41 @@ INFO_QUERY = """
 """
 
 def _decode_tobeparsed(tbp: str):
-    raw = base64.b64decode(tbp)
-    key = hashlib.sha256("P7K2RGbFgauVtmiS"[::-1].encode()).digest()
-    iv, ciphertext, tag = raw[:12], raw[12:-16], raw[-16:]
-    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-    decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode('utf-8')
-    return json.loads(decrypted)
+    payload = tbp.strip()
+    padded_payload = payload + ("=" * (-len(payload) % 4))
+    decode_methods = (base64.b64decode, base64.urlsafe_b64decode)
+    key_seeds = ("P7K2RGbFgauVtmiS"[::-1], "P7K2RGbFgauVtmiS")
+    nonce_sizes = (12, 16)
+    last_error: ValueError | UnicodeDecodeError | json.JSONDecodeError | None = None
+
+    for decode_method in decode_methods:
+        try:
+            raw = decode_method(padded_payload)
+        except ValueError as e:
+            last_error = e
+            continue
+
+        for key_seed in key_seeds:
+            key = hashlib.sha256(key_seed.encode()).digest()
+
+            for nonce_size in nonce_sizes:
+                if len(raw) <= nonce_size + 16:
+                    continue
+
+                iv, ciphertext, tag = (
+                    raw[:nonce_size],
+                    raw[nonce_size:-16],
+                    raw[-16:],
+                )
+                cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+
+                try:
+                    decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode("utf-8")
+                    return json.loads(decrypted)
+                except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                    last_error = e
+
+    raise ValueError("Unable to decode stream payload") from last_error
 
 class AllAnimeFilter(BaseFilter):
     def _apply_query(self, query: str):
