@@ -96,13 +96,59 @@ INFO_QUERY = """
     }
 """
 
+BASE64_BLOCK_SIZE = 4
+GCM_TAG_SIZE = 16
+MAX_FAILURE_POINTS_IN_ERROR = 6
+
+
 def _decode_tobeparsed(tbp: str):
-    raw = base64.b64decode(tbp)
-    key = hashlib.sha256("P7K2RGbFgauVtmiS"[::-1].encode()).digest()
-    iv, ciphertext, tag = raw[:12], raw[12:-16], raw[-16:]
-    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-    decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode('utf-8')
-    return json.loads(decrypted)
+    payload = tbp.strip()
+    padding_needed = (BASE64_BLOCK_SIZE - len(payload) % BASE64_BLOCK_SIZE) % BASE64_BLOCK_SIZE
+    padded_payload = payload + ("=" * padding_needed)
+    decode_methods = (base64.b64decode, base64.urlsafe_b64decode)
+    key_seeds = ("P7K2RGbFgauVtmiS"[::-1], "P7K2RGbFgauVtmiS")
+    nonce_sizes = (12, 16)
+    last_error: ValueError | UnicodeDecodeError | json.JSONDecodeError | None = None
+    failure_points: list[str] = []
+
+    for decode_method in decode_methods:
+        try:
+            raw = decode_method(padded_payload)
+        except ValueError as e:
+            last_error = e
+            failure_points.append(f"{decode_method.__name__}:base64")
+            continue
+
+        for key_seed in key_seeds:
+            key = hashlib.sha256(key_seed.encode()).digest()
+
+            for nonce_size in nonce_sizes:
+                if len(raw) <= nonce_size + GCM_TAG_SIZE:
+                    continue
+
+                iv, ciphertext, tag = (
+                    raw[:nonce_size],
+                    raw[nonce_size:-GCM_TAG_SIZE],
+                    raw[-GCM_TAG_SIZE:],
+                )
+                cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+
+                try:
+                    decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode("utf-8")
+                    return json.loads(decrypted)
+                except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                    last_error = e
+                    failure_points.append(
+                        f"{decode_method.__name__}:{key_seed[:4]}...:{nonce_size}"
+                    )
+
+    details = ", ".join(failure_points[-MAX_FAILURE_POINTS_IN_ERROR:])
+    message = (
+        f"Unable to decode stream payload ({details})"
+        if details
+        else "Unable to decode stream payload"
+    )
+    raise ValueError(message) from last_error
 
 class AllAnimeFilter(BaseFilter):
     def _apply_query(self, query: str):
