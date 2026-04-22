@@ -130,29 +130,28 @@ def _decode_tobeparsed(tbp: str):
             pass
 
         for key_seed in key_seeds:
-            keys = (hashlib.sha256(key_seed.encode()).digest(), key_seed.encode())
+            key = hashlib.sha256(key_seed.encode()).digest()
 
-            for key in keys:
-                for nonce_size in nonce_sizes:
-                    for tag_size in GCM_TAG_SIZES:
-                        if len(raw) <= nonce_size + tag_size:
-                            continue
+            for nonce_size in nonce_sizes:
+                for tag_size in GCM_TAG_SIZES:
+                    if len(raw) <= nonce_size + tag_size:
+                        continue
 
-                        iv, ciphertext, tag = (
-                            raw[:nonce_size],
-                            raw[nonce_size:-tag_size],
-                            raw[-tag_size:],
+                    iv, ciphertext, tag = (
+                        raw[:nonce_size],
+                        raw[nonce_size:-tag_size],
+                        raw[-tag_size:],
+                    )
+                    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+
+                    try:
+                        decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode("utf-8")
+                        return json.loads(decrypted)
+                    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                        last_error = e
+                        failure_points.append(
+                            f"{decode_method.__name__}:{key.hex()[:8]}:sha256:{nonce_size}:{tag_size}"
                         )
-                        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-
-                        try:
-                            decrypted = cipher.decrypt_and_verify(ciphertext, tag).decode("utf-8")
-                            return json.loads(decrypted)
-                        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
-                            last_error = e
-                            failure_points.append(
-                                f"{decode_method.__name__}:{key_seed[:4]}...:{nonce_size}:{tag_size}"
-                            )
 
     details = ", ".join(failure_points[-MAX_FAILURE_POINTS_IN_ERROR:])
     message = (
