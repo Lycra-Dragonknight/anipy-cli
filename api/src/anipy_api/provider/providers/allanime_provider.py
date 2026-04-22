@@ -96,10 +96,15 @@ INFO_QUERY = """
     }
 """
 
+BASE64_BLOCK_SIZE = 4
+GCM_TAG_SIZE = 16
+MAX_FAILURE_POINTS_IN_ERROR = 6
+
+
 def _decode_tobeparsed(tbp: str):
-    gcm_tag_size = 16
     payload = tbp.strip()
-    padded_payload = payload + ("=" * (-len(payload) % 4))
+    padding_needed = (BASE64_BLOCK_SIZE - len(payload) % BASE64_BLOCK_SIZE) % BASE64_BLOCK_SIZE
+    padded_payload = payload + ("=" * padding_needed)
     decode_methods = (base64.b64decode, base64.urlsafe_b64decode)
     key_seeds = ("P7K2RGbFgauVtmiS"[::-1], "P7K2RGbFgauVtmiS")
     nonce_sizes = (12, 16)
@@ -118,13 +123,13 @@ def _decode_tobeparsed(tbp: str):
             key = hashlib.sha256(key_seed.encode()).digest()
 
             for nonce_size in nonce_sizes:
-                if len(raw) <= nonce_size + gcm_tag_size:
+                if len(raw) <= nonce_size + GCM_TAG_SIZE:
                     continue
 
                 iv, ciphertext, tag = (
                     raw[:nonce_size],
-                    raw[nonce_size:-gcm_tag_size],
-                    raw[-gcm_tag_size:],
+                    raw[nonce_size:-GCM_TAG_SIZE],
+                    raw[-GCM_TAG_SIZE:],
                 )
                 cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
 
@@ -137,8 +142,7 @@ def _decode_tobeparsed(tbp: str):
                         f"{decode_method.__name__}:{key_seed[:4]}...:{nonce_size}"
                     )
 
-    max_failure_points_in_error = 6
-    details = ", ".join(failure_points[-max_failure_points_in_error:])
+    details = ", ".join(failure_points[-MAX_FAILURE_POINTS_IN_ERROR:])
     raise ValueError(f"Unable to decode stream payload ({details})") from last_error
 
 class AllAnimeFilter(BaseFilter):
